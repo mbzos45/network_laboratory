@@ -7,7 +7,6 @@
 #include <netdb.h>      /* gethostbyname()を用いるためのヘッダファイル */
 #include <errno.h>
 #include <string.h>
-#include <unistd.h>
 #define  MAXHOSTNAME	64
 #define  S_UDP_PORT	(u_short)5000  /* 本サーバが用いるポート番号 */
 #define  MAXKEYLEN	128
@@ -15,7 +14,7 @@
 int setup_dgserver(struct hostent*, u_short);
 void db_search(int);
 
-int main()
+main()
 {
 	int	socd;
 	char	s_hostname[MAXHOSTNAME];

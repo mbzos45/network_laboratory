@@ -7,7 +7,6 @@
 #include <netdb.h>      /* gethostbyname()を用いるためのヘッダファイル */
 #include <errno.h>
 #include <string.h>
-#include <unistd.h>
 
 #define  MAXHOSTNAME    64
 #define  S_TCP_PORT    (u_short)5000  /* 本サーバが用いるポート番号 */
@@ -17,10 +16,9 @@
 #define     OK        1 /*                 成功 */
 
 int setup_vcserver(struct hostent *, u_short);
-
 void send_file(int);
 
-int main() {
+main() {
     int socd, socd1;
     char s_hostname[MAXHOSTNAME];
     struct hostent *s_hostent;
@@ -108,7 +106,7 @@ void send_file(int socd) /* クライアントが要求するファイルを読�
         while (fgets(buf, MAXBUFLEN, fd)) {
             send(socd, buf, strlen(buf), 0);
         }
-        fclose(fd);
+        close(fd);
     } else {                                    /* ファイルオープンに失敗した場合 */
         /* オープン失敗メッセージを送る */
         ack = ERR;

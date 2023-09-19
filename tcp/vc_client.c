@@ -7,8 +7,6 @@
 #include <netdb.h>      /* gethostbyname()を用いるためのヘッダファイル */
 #include <errno.h>
 #include <string.h>
-#include <unistd.h>
-
 #define  MAXHOSTNAME    64
 #define     S_TCP_PORT    (u_short)5000
 #define  MAXFILENAME    255
@@ -17,10 +15,9 @@
 #define  OK        1 /*                 成功 */
 
 int setup_vcclient(struct hostent *, u_short);
-
 void receive_file(int);
 
-int main() {
+main() {
     int socd;
     char s_hostname[MAXHOSTNAME];
     struct hostent *s_hostent;

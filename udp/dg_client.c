@@ -7,8 +7,6 @@
 #include <netdb.h>      /* gethostbyname()を用いるためのヘッダファイル */
 #include <errno.h>
 #include <string.h>
-#include <unistd.h>
-
 #define  MAXHOSTNAME    64
 #define     S_UDP_PORT    (u_short)5000
 #define  MAXKEYLEN    128
@@ -18,7 +16,7 @@ int setup_dgclient(struct hostent *, u_short, struct sockaddr_in *, int *);
 
 void remote_dbsearch(int, struct sockaddr_in *, int);
 
-int main() {
+main() {
     int socd;
     char s_hostname[MAXHOSTNAME];
     struct hostent *s_hostent;
