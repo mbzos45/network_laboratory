@@ -11,6 +11,7 @@
 #define     S_UDP_PORT    (u_short)5000
 #define  MAX_KEY_LEN    128
 #define     MAX_DATA_LEN    256
+#define SHUTDOWN_MESSAGE "the server will shutdown now!"
 
 int setup_dgclient(struct hostent *, u_short, struct sockaddr_in *, socklen_t *);
 
@@ -100,5 +101,6 @@ void remote_dbsearch(int socd, struct sockaddr_in *s_addressp, socklen_t s_addrl
         fputs("data: ", stdout);
         puts(data);
         printf("\n");
+        if (strcmp(data, SHUTDOWN_MESSAGE) == 0) break;
     } while (1);
 }

@@ -1,0 +1,14 @@
+[e2158149@E307DN083 ~]$ cd project/
+[e2158149@E307DN083 ~/project]$ gcc dg_server.c -o dg_server
+[e2158149@E307DN083 ~/project]$ ./dg_server 
+Received key> GET:amano-taro
+Sent data> 0426-91-9418
+Received key> GET:amano-taro,ooishi-goro
+Sent data> 0426-91-9418,0426-91-9618
+Received key> POST:amano-taro,086-000-0000
+Sent data> 0426-91-9418
+Received key> GET:amano-taro,ooishi-goro
+Sent data> 086-000-0000,0426-91-9618
+Received key> shutdown
+Sent data> the server will shutdown now!
+[e2158149@E307DN083 ~/project]$

@@ -1,0 +1,20 @@
+[e2158149@E307DN067 ~]$ cd project/
+[e2158149@E307DN067 ~/project]$ gcc dg_client.c -o dg_client
+[e2158149@E307DN067 ~/project]$ ./dg_client 
+server host name?: 10.37.160.181       
+key?: GET:amano-taro 
+data: 0426-91-9418
+
+key?: GET:amano-taro,ooishi-goro
+data: 0426-91-9418,0426-91-9618
+
+key?: POST:amano-taro,086-000-0000
+data: 0426-91-9418
+
+key?: GET:amano-taro,ooishi-goro
+data: 086-000-0000,0426-91-9618
+
+key?: shutdown
+data: the server will shutdown now!
+
+[e2158149@E307DN067 ~/project]$

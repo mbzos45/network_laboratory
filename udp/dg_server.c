@@ -6,15 +6,17 @@
 #include <netdb.h>      /* gethostbyname()を用いるためのヘッダファイル */
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 
-#define  MAX_HOSTNAME    64
+#define  MAXHOSTNAME    64
 #define  S_UDP_PORT    (u_short)5000  /* 本サーバが用いるポート番号 */
-#define  MAX_KEY_LEN    128
-#define  MAX_DATA_LEN    256
+#define  MAXKEYLEN    128
+#define  MAXDATALEN    256
 
-#define SPLIT_SYMBOL ","
 #define GET_HEADER "GET:"
 #define POST_HEADER "POST:"
+#define SHUTDOWN_HEADER "shutdown"
+#define SHUTDOWN_MESSAGE "the server will shutdown now!"
 
 int setup_dgserver(struct hostent *, u_short);
 
@@ -22,7 +24,7 @@ void db_search(int);
 
 int main() {
     int socd;
-    char s_hostname[MAX_HOSTNAME];
+    char s_hostname[MAXHOSTNAME];
     struct hostent *s_hostent;
 
     /* サーバのホスト名とそのInternetアドレス(をメンバに持つhostent構造体)を求める */
@@ -61,80 +63,86 @@ int setup_dgserver(struct hostent *hostent, u_short port) {
     return socd;
 }
 
-void db_search(int socd) /* クライアントのデータ検索要求を処理する */
+void db_search(int socd) /* クライアントがデータ検索要求を処理する */
 {
     struct sockaddr_in c_address;
-    int i;
-    char keys[MAX_KEY_LEN + 1] = {0}, data[MAX_DATA_LEN + 1] = {0}, removeHeaderKeys[
-            MAX_KEY_LEN + 1] = {0}, postTargetName[MAX_KEY_LEN] = {0};
-    const int GET_HEADER_LEN = strlen(GET_HEADER), POST_HEADER_LEN = strlen(POST_HEADER);
-    size_t keysLen, dataLen, headID = 0;
     socklen_t c_addrlen;
-    static char *db[11] = {"amano-taro", "0426-91-9418", "ishida-jiro", "0426-91-9872",
-                           "ueda-saburo", "0426-91-9265", "ema-shiro", "0426-91-7254",
-                           "ooishi-goro", "0426-91-9618", NULL};
+    char key[MAXKEYLEN + 1] = {0}, data[MAXDATALEN + 1] = {0}, *token, *newNumber;
+    ssize_t keyLen;
+    size_t dataLen;
+    int i, error_num = 0, is_shutdown = 0;
+    const size_t GET_HEADER_LEN = strlen(GET_HEADER), POST_HEADER_LEN = strlen(POST_HEADER);
+    static char *db[11];
+    for (i = 0; i <= 9; i++) db[i] = (char *) malloc(32);
+    strcpy(db[0], "amano-taro");
+    strcpy(db[1], "0426-91-9418");
+    strcpy(db[2], "ishida-jiro");
+    strcpy(db[3], "0426-91-9872");
+    strcpy(db[4], "ueda-saburo");
+    strcpy(db[5], "0426-91-9265");
+    strcpy(db[6], "ema-shiro");
+    strcpy(db[7], "0426-91-7254");
+    strcpy(db[8], "ooishi-goro");
+    strcpy(db[9], "0426-91-9618");
+    db[10] = NULL;
     char **dbp;
+
     while (1) {
         /* キーをソケットから読み込む */
         c_addrlen = sizeof(c_address);
-        if ((keysLen = recvfrom(socd, keys, MAX_KEY_LEN, 0, (struct sockaddr *) &c_address, &c_addrlen)) < 0) {
+        if ((keyLen = recvfrom(socd, key, MAXKEYLEN, 0, (struct sockaddr *) &c_address, &c_addrlen)) < 0) {
             perror("recvfrom");
-            exit(1);
+            error_num = EPERM;
+            break;
         }
-        keys[keysLen] = '\0';
-        printf("Received keys> %s\n", keys);
-        if (strncmp(keys, GET_HEADER, GET_HEADER_LEN) == 0) {
-            strcat(removeHeaderKeys, &keys[GET_HEADER_LEN + 1]);
-            /* キーを用いてデータ検索 */
-            for (i = 0; i < keysLen; ++i) {
-                if (removeHeaderKeys[i] == ',') {
-                    removeHeaderKeys[i] = '\0';
-                }
-            }
-            while (headID < keysLen - GET_HEADER_LEN - 1) {
+        key[keyLen] = '\0';
+        printf("Received key> %s\n", key);
+        if (strncmp(key, GET_HEADER, GET_HEADER_LEN) == 0) { /* GET:から始まる時 */
+            memmove(key, key + GET_HEADER_LEN, keyLen); /* GET_HEADERを消去する */
+            token = strtok(key, ",");
+            do {
                 dbp = db;
                 while (*dbp) {
-                    if (strcmp(&removeHeaderKeys[headID], *dbp) == 0) {
-                        strcat(data, SPLIT_SYMBOL);
+                    if (strcmp(token, *dbp) == 0) {
                         strcat(data, *(++dbp));
-                        headID = strlen(data) + 1;
-                        break;
+                        strcat(data, ",");
+                        break; /* dataに値と , を追加する */
                     }
                     dbp += 2;
                 }
-                if (*dbp == NULL) strcpy(data, "No entry");
-                break;
-            }
-        } else if (strncmp(keys, POST_HEADER, POST_HEADER_LEN) == 0) {
-            strcat(removeHeaderKeys, &keys[GET_HEADER_LEN + 1]);
-            for (i = 0; i < MAX_KEY_LEN; ++i) {
-                if (removeHeaderKeys[i] == ',') {
-                    postTargetName[i] = '\0';
+                if (*dbp == NULL) strcpy(data, "No entry"); /* 文末の,を消去 */
+            } while ((token = strtok(NULL, ",")));
+            if (data[strlen(data) - 1] == ',') data[strlen(data) - 1] = '\0';
+        } else if (strncmp(key, POST_HEADER, POST_HEADER_LEN) == 0) { /* POSTの時 */
+            memmove(key, key + POST_HEADER_LEN, keyLen); /* POST_HEADER消去*/
+            token = strtok(key, ",");
+            newNumber = strtok(NULL, ",");
+            dbp = db;
+            while (*dbp) {
+                if (strcmp(token, *dbp) == 0) {
+                    strcpy(data, *(++dbp));
+                    strcpy(*dbp, newNumber);
                     break;
                 }
-                postTargetName[i] = removeHeaderKeys[i];
+                dbp += 2;
             }
-            if (i != MAX_KEY_LEN) {
-                dbp = db;
-                while (*dbp) {
-                    if (strcmp(postTargetName, *dbp) == 0) {
-                        strcpy(data, *(++dbp));
-                        strcpy(*(dbp), &removeHeaderKeys[i + 1]);
-                        break;
-                    }
-                    dbp += 2;
-                }
-                if (*dbp == NULL) strcpy(data, "No entry");
-            }
+            if (*dbp == NULL) strcpy(data, "No entry");
+        } else if (strcmp(key, SHUTDOWN_HEADER) == 0) { /* SHUTDOWN_HEADERの時 */
+            is_shutdown = 1;
+            strcpy(data, SHUTDOWN_MESSAGE);
         } else
             strcpy(data, "Bad Header");
+        /* 検索したデータをソケットに書き込む */
         dataLen = strlen(data);
         if (sendto(socd, data, dataLen, 0, (struct sockaddr *) &c_address, c_addrlen) != dataLen) {
             fprintf(stderr, "datagram error\n");
-            exit(1);
+            error_num = EPERM;
+            break;
         }
         printf("Sent data> %s\n", data);
-        memset(data, '\0', sizeof(data) / sizeof(char));
-        memset(removeHeaderKeys, '\0', sizeof(removeHeaderKeys) / sizeof(char));
+        if (is_shutdown) break; /* シャットダウンするとき無限ループを抜けてメモリ解放を行う */
+        data[0] = '\0';
     }
+    for (i = 0; i < 11; ++i) free(db[i]);
+    exit(error_num);
 }
