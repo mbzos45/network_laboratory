@@ -9,20 +9,20 @@
 #include <stdbool.h>
 
 #define  MAX_HOST_NAME    64
-#define     S_TCP_PORT    7000
+#define     S_TCP_PORT    5000
 #define  MAX_FILE_NAME    255
 #define     MAX_BUF_LEN    512
-#define CLOSE_HEADER "shutdown:"
+#define CLOSE_HEADER "CLOSE:"
 #define PUT_HEADER "PUT:"
 
 const size_t PUT_HEADER_LEN = strlen(PUT_HEADER);
 
-int setup_vcclient(struct hostent *, u_short);
+int setup_vc_client(struct hostent *, u_short);
 
 void receive_file(int);
 
 int main() {
-    int socd;
+    int socked_id;
     char s_hostname[MAX_HOST_NAME];
     struct hostent *s_hostent;
 
@@ -36,19 +36,19 @@ int main() {
     }
 
     /* バーチャルサーキットクライアントの初期設定 */
-    socd = setup_vcclient(s_hostent, S_TCP_PORT);
+    socked_id = setup_vc_client(s_hostent, S_TCP_PORT);
 
     /* サーバにファイルを要求し受信したファイルの内容を標準出力に出力 */
-    receive_file(socd);
+    receive_file(socked_id);
     printf("client will close.\n");
-    close(socd);
+    close(socked_id);
     return 0;
 }
 
-int setup_vcclient(struct hostent *hostent, u_short port) {
-    int socd;
+int setup_vc_client(struct hostent *hostent, u_short port) {
+    int socked_id;
     /* インターネットドメインのSOCK_STREAM(TCP)型ソケットの構築 */
-    if ((socd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((socked_id = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket");
         exit(1);
     }
@@ -60,15 +60,15 @@ int setup_vcclient(struct hostent *hostent, u_short port) {
     s_address.sin_port = htons(port);
     bcopy((char *) hostent->h_addr, (char *) &s_address.sin_addr, hostent->h_length);
     /* サーバとの接続の確立 */
-    if (connect(socd, (struct sockaddr *) &s_address, sizeof(s_address)) < 0) {
+    if (connect(socked_id, (struct sockaddr *) &s_address, sizeof(s_address)) < 0) {
         perror("connect");
         exit(1);
     }
 
-    return socd;
+    return socked_id;
 }
 
-void receive_file(int socd) /* サーバから受け取ったファイルの内容を表示する */
+void receive_file(int socked_id) /* サーバから受け取ったファイルの内容を表示する */
 {
     char filename[MAX_FILE_NAME + 1];
     size_t filename_len;
@@ -87,22 +87,22 @@ void receive_file(int socd) /* サーバから受け取ったファイルの内�
             return;
         }
         /* ファイル名をソケットに書き込む */
-        send(socd, filename, filename_len + 1, 0);
+        send(socked_id, filename, filename_len + 1, 0);
         if (is_shutdown) { /* 終了フラグがtrueの時クライアントを終了する。 */
             printf("close signal sent to the server.\n");
             return;
         };
         /* ファイルオープンに成功したかどうかのメッセージをソケットから読み込む */
-        recv(socd, &ack, 1, 0);
+        recv(socked_id, &ack, 1, 0);
         if (ack) {
             char buf[MAX_BUF_LEN] = {0};
             printf("received file %s \n", filename);
             printf("<- start of file ->\n");
             /* ソケットから読み込み標準出力に書き出す */
             ssize_t length;
-            while ((length = recv(socd, buf, MAX_BUF_LEN, 0))) {
+            while ((length = recv(socked_id, buf, MAX_BUF_LEN, 0))) {
                 if (buf[length - 1] == EOF) {
-                    buf[0] = '\0';
+                    buf[length - 1] = '\0';
                     fputs(buf, stdout);
                     break;
                 } else {
