@@ -84,23 +84,23 @@ int setup_vc_server(struct hostent *hostent, u_short port) {
 void send_file(int socked_id) /* クライアントが要求するファイルを読み込みソケットに書き出す */
 {
     while (true) {
-        char recv_str[MAX_FILE_NAME + 1];
+        char filename[MAX_FILE_NAME + 1];
         /* クライアントから送られるファイル名をソケットから読み込む */
-        recv(socked_id, recv_str, MAX_FILE_NAME + 1, 0);
+        recv(socked_id, filename, MAX_FILE_NAME + 1, 0);
         /* 終了命令を受け取った時の処理 */
-        if (strcmp(recv_str, CLOSE_HEADER) == 0) {
+        if (strcmp(filename, CLOSE_HEADER) == 0) {
             printf("session close request received\n");
             break;
         }
         /* ファイルを読み出し専用にオープンする */
         FILE *fd;
         bool ack;
-        if ((fd = fopen(recv_str, "r")) != NULL) { /* ファイルオープンに成功した場合 */
+        if ((fd = fopen(filename, "r")) != NULL) { /* ファイルオープンに成功した場合 */
             /* オープン成功メッセージを送る */
             ack = true;
             send(socked_id, &ack, 1, 0);
             /* ファイルから1行読み込みソケットに書き出すことをEOFを読むまで繰り返す */
-            printf("begin sending file %s\n", recv_str);
+            printf("begin sending file %s\n", filename);
             char buf[MAX_BUF_LEN];
             while (fgets(buf, MAX_BUF_LEN, fd)) {
                 send(socked_id, buf, strlen(buf), 0);
@@ -108,9 +108,9 @@ void send_file(int socked_id) /* クライアントが要求するファイル�
             buf[0] = EOF;
             buf[1] = '\0';
             send(socked_id, buf, strlen(buf), 0); /* EOFを送りファイル送信が終わったことを伝える */
-            printf("sent file %s\n", recv_str);
+            printf("sent file %s\n", filename);
             fclose(fd);
-            printf("closed file %s\n", recv_str);
+            printf("closed file %s\n", filename);
         } else {                                    /* ファイルオープンに失敗した場合 */
             /* オープン失敗メッセージを送る */
             ack = false;

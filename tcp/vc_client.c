@@ -70,50 +70,50 @@ int setup_vc_client(struct hostent *hostent, u_short port) {
 
 void receive_file(int socked_id) /* サーバから受け取ったファイルの内容を表示する */
 {
-    char filename[MAX_FILE_NAME + 1];
-    size_t filename_len;
-    bool ack = false;
-    bool is_shutdown = false;
+    char inputted_str[MAX_FILE_NAME + 1];
     while (1) {
         /* ファイル名の入力 */
         printf("remote file name?: ");
-        if (scanf("%s", filename) == EOF) { /* 終了処理時 ファイル名を終了ヘッダにしてサーバーに終了命令を送る*/
-            strcpy(filename, CLOSE_HEADER);
-            is_shutdown = true;
-        }
-        filename_len = strlen(filename);
-        if (strncmp(filename, PUT_HEADER, PUT_HEADER_LEN) == 0) {
-            printf("未実装\n");
-            return;
-        }
-        /* ファイル名をソケットに書き込む */
-        send(socked_id, filename, filename_len + 1, 0);
-        if (is_shutdown) { /* 終了フラグがtrueの時クライアントを終了する。 */
+        if (scanf("%s", inputted_str) == EOF) { /* 終了処理時 ファイル名を終了ヘッダにしてサーバーに終了命令を送る*/
+            send(socked_id, CLOSE_HEADER, strlen(CLOSE_HEADER) + 1, 0);
             printf("close signal sent to the server.\n");
-            return;
-        };
-        /* ファイルオープンに成功したかどうかのメッセージをソケットから読み込む */
-        recv(socked_id, &ack, 1, 0);
-        if (ack) {
-            char buf[MAX_BUF_LEN] = {0};
-            printf("received file %s \n", filename);
-            printf("<- start of file ->\n");
-            /* ソケットから読み込み標準出力に書き出す */
-            ssize_t length;
-            while ((length = recv(socked_id, buf, MAX_BUF_LEN, 0))) {
-                if (buf[length - 1] == EOF) {
-                    buf[length - 1] = '\0';
-                    fputs(buf, stdout);
-                    break;
-                } else {
-                    buf[length] = '\0';
-                    fputs(buf, stdout);
-                }
-
-            }
-            printf("<- end of file ->\n");
-        } else {
-            fprintf(stderr, "File access error\n");
+            break;
         }
+        char *filenames[MAX_FILE_NAME] = {NULL};
+        filenames[0] = strtok(inputted_str, ",");
+        int file_num = 1;
+        for (int i = 1; i < MAX_FILE_NAME; ++i) {
+            if ((filenames[i] = strtok(NULL, ",")) == NULL) break;
+            ++file_num;
+        }
+        for (int i = 0; i < file_num; ++i) {
+            /* ファイル名をソケットに書き込む */
+            send(socked_id, filenames[i], strlen(filenames[i]) + 1, 0);
+            /* ファイルオープンに成功したかどうかのメッセージをソケットから読み込む */
+            bool ack;
+            recv(socked_id, &ack, 1, 0);
+            if (ack) {
+                char buf[MAX_BUF_LEN] = {0};
+                printf("received file %s \n", filenames[i]);
+                printf("<- start of file ->\n");
+                /* ソケットから読み込み標準出力に書き出す */
+                ssize_t length;
+                while ((length = recv(socked_id, buf, MAX_BUF_LEN, 0))) {
+                    if (buf[length - 1] == EOF) {
+                        buf[length - 1] = '\0';
+                        fputs(buf, stdout);
+                        break;
+                    } else {
+                        buf[length] = '\0';
+                        fputs(buf, stdout);
+                    }
+
+                }
+                printf("<- end of file ->\n");
+            } else {
+                fprintf(stderr, "File access error\n");
+            }
+        }
+
     }
 }
