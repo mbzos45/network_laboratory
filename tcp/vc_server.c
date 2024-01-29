@@ -13,6 +13,9 @@
 #define MAX_FILE_NAME 255
 #define MAX_BUF_LEN 512
 #define CLOSE_HEADER "CLOSE:"
+#define PUT_HEADER "PUT:"
+
+const size_t PUT_HEADER_LEN = strlen(PUT_HEADER);
 
 int setup_vc_server(struct hostent *, u_short);
 
@@ -91,6 +94,11 @@ void send_file(int socked_id) /* クライアントが要求するファイル�
         if (strcmp(filename, CLOSE_HEADER) == 0) {
             printf("session close request received\n");
             break;
+        }
+        if (strncmp(filename, PUT_HEADER, PUT_HEADER_LEN) == 0) {
+            memmove(filename, &filename[PUT_HEADER_LEN], strlen(filename));
+            bool ack = true;
+            send(socked_id, &ack, 1, 0);
         }
         /* ファイルを読み出し専用にオープンする */
         FILE *fd;
