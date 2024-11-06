@@ -105,10 +105,16 @@ void handler_server(const int sock) /* サーバから受け取ったファイ�
 
 void receive_files(const int sock) {
     char buffer[BUFFER_SIZE] = {0};
-    ssize_t bytes_received;
-    while ((bytes_received = recv(sock, buffer, BUFFER_SIZE, 0)) > 0) {
+    while (1) {
+        const ssize_t bytes_received = recv(sock, buffer, BUFFER_SIZE, 0);
+        if (bytes_received <= 0) break;
+        // 受信データの表示
         fputs(buffer, stdout);
-        if (bytes_received < BUFFER_SIZE) break;
+        // EOTマーカーが受信された場合はファイルの終わり
+        if (buffer[bytes_received - 1] == EOT[0]) {
+            printf("\nEnd of file received.\n");
+            break;
+        }
     }
 }
 

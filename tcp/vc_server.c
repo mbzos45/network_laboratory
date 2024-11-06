@@ -138,35 +138,42 @@ void handler_client(const int sock) {
             printf("File %s receive complete\n", filename);
             fclose(fp);
         } else if (strncmp(buffer, GET_HEADER, GET_HEADER_LEN) == 0) {
-            char filename[BUFFER_SIZE];
-            sscanf(buffer + GET_HEADER_LEN, "%1023s", filename);
-            char *token = strtok(filename, ",");
-            FILE *fp = fopen(token, "r");
-            if (fp == NULL) {
-                perror("File opening failed");
-                const char *error_msg = "ERROR: File not found\n";
-                send(sock, error_msg, strlen(error_msg), 0);
-            } else {
-                while (fgets(buffer, BUFFER_SIZE, fp) != NULL) {
-                    send(sock, buffer, strlen(buffer), 0);
-                }
-                printf("File %s send complete\n", filename);
-            }
-            fclose(fp);
-            while ((token = strtok(NULL, ",")) != NULL) {
-                fp = fopen(token, "r");
+            char filenames[BUFFER_SIZE];
+            strncpy(filenames, buffer + GET_HEADER_LEN, sizeof(filenames) - 1);
+            filenames[sizeof(filenames) - 1] = '\0'; // NULL終端を保証
+
+            // カンマで区切られた複数のファイル名を処理する
+            char *filename = strtok(filenames, ",");
+            while (filename != NULL) {
+                FILE *fp = fopen(filename, "r");
                 if (fp == NULL) {
                     perror("File opening failed");
                     const char *error_msg = "ERROR: File not found\n";
                     send(sock, error_msg, strlen(error_msg), 0);
                 } else {
+                    // ファイル内容を全て送信する
                     while (fgets(buffer, BUFFER_SIZE, fp) != NULL) {
-                        send(sock, buffer, strlen(buffer), 0);
+                        size_t bytes_to_send = strlen(buffer);
+                        ssize_t bytes_sent = 0;
+                        while (bytes_to_send > 0) {
+                            bytes_sent = send(sock, buffer, bytes_to_send, 0);
+                            if (bytes_sent < 0) {
+                                perror("send");
+                                fclose(fp);
+                                return;
+                            }
+                            bytes_to_send -= bytes_sent;
+                        }
                     }
                     fclose(fp);
-                    printf("File %s send complete\n", token);
+
+                    printf("File %s send complete\n", filename);
                 }
+                // 次のファイル名に移動
+                filename = strtok(NULL, ",");
             }
+            // ファイルの送信終了を示すEOTマーカーを送信
+            send(sock, EOT, strlen(EOT), 0);
         }
     }
 }
