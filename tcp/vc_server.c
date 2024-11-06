@@ -3,126 +3,170 @@
 #include <stdlib.h>
 #include <sys/socket.h> /* ソケットのための基本的なヘッダファイル      */
 #include <netinet/in.h> /* インタネットドメインのためのヘッダファイル  */
-#include <netdb.h>      /* gethostbyname()を用いるためのヘッダファイル */
+#include <sys/wait.h>
+#include <netdb.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
 
-#define MAX_HOST_NAME 64
-#define S_TCP_PORT 5000  /* 本サーバが用いるポート番号 */
+#define MAX_HOSTNAME_LEN 64
+#define DEFAULT_PORT 5000  /* 本サーバが用いるポート番号 */
 #define MAX_FILE_NAME 255
-#define MAX_BUF_LEN 512
-#define CLOSE_HEADER "CLOSE:"
+#define BUFFER_SIZE 1024
+#define SHUTDOWN_HEADER "SHUTDOWN:"
+#define SHUTDOWN_HEADER_LEN 9
 #define PUT_HEADER "PUT:"
+#define PUT_HEADER_LEN 4
+#define GET_HEADER "GET:"
+#define GET_HEADER_LEN 4
+#define EOT "\x04"
 
-const size_t PUT_HEADER_LEN = strlen(PUT_HEADER);
+int server_fd = -1;
 
-int setup_vc_server(struct hostent *, u_short);
+int setup_vc_server(const struct hostent *hostent, uint16_t port);
 
-void send_file(int);
+void handler_client(int sock);
+
+void shutdown_server(int sig) {
+    printf("\nShutting down server...\n");
+    close(server_fd);
+    exit(EXIT_SUCCESS);
+}
+
+// 子プロセスが終了したときに呼び出されるハンドラ
+void sigchld_handler(int sig) {
+    while (waitpid(-1, NULL, WNOHANG) > 0);
+}
 
 int main() {
-    char s_hostname[MAX_HOST_NAME];
+    char s_hostname[MAX_HOSTNAME_LEN];
     /* サーバのホスト名とそのIPアドレス(をメンバに持つhostent構造体)を求める */
     gethostname(s_hostname, sizeof(s_hostname));
-    struct hostent *s_hostent = gethostbyname(s_hostname);
+    const struct hostent *s_hostent = gethostbyname(s_hostname);
 
     /* バーチャルサーキットサーバの初期設定 */
-    int parent_socked = setup_vc_server(s_hostent, S_TCP_PORT);
-    int child_socked;
-    struct sockaddr_in c_address;
-    socklen_t c_addrlen;
-    pid_t cp_id;
+    signal(SIGINT, shutdown_server);
 
-    while (true) {
+    // SIGCHLDシグナル（子プロセス終了）を無視し、ゾンビプロセスを防止
+    signal(SIGCHLD, sigchld_handler);
+
+    server_fd = setup_vc_server(s_hostent, DEFAULT_PORT);
+    printf("Server listening on port %d\n", DEFAULT_PORT);
+    while (1) {
         /* 接続要求の受け入れ */
-        c_addrlen = sizeof(c_address);
-        if ((child_socked = accept(parent_socked, (struct sockaddr *) &c_address, &c_addrlen)) < 0) {
+        struct sockaddr_in c_address;
+        socklen_t c_addrlen = sizeof(c_address);
+        int client_sock;
+        if ((client_sock = accept(server_fd, (struct sockaddr *) &c_address, &c_addrlen)) < 0) {
             perror("accept");
             exit(1);
         }
         printf("new session started\n");
-        /* フォーク(並行サーバのサービス) */
-        if ((cp_id = fork()) < 0) {
+        // フォーク(並行サーバのサービス)
+        const pid_t pid = fork();
+        if (pid < 0) {
             perror("fork");
-            exit(1);
-        } else if (cp_id == 0) { /* 子プロセス */
-            close(parent_socked);
-            /* クライアントが要求するファイルの送信 */
-            send_file(child_socked);
-            close(child_socked);
-            exit(0);
-        } else close(child_socked);   /* 親プロセス */
+            exit(EXIT_FAILURE);
+        }
+        if (pid == 0) {
+            // 子プロセス
+            close(server_fd);
+            // クライアントが要求するファイルの送信
+            handler_client(client_sock);
+            close(client_sock);
+            exit(EXIT_SUCCESS);
+        }
+        close(client_sock); /* 親プロセス */
     }
 }
 
-int setup_vc_server(struct hostent *hostent, u_short port) {
-    int socked_id;
+int setup_vc_server(const struct hostent *hostent, const uint16_t port) {
     /* インターネットドメインのSOCK_STREAM(TCP)型ソケットの構築 */
-    if ((socked_id = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    const int sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock < 0) {
         perror("socket");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     struct sockaddr_in s_address;
     /* アドレス(IPアドレスとポート番号)の作成 */
     bzero((char *) &s_address, sizeof(s_address));
     s_address.sin_family = AF_INET;
     s_address.sin_port = htons(port);
-    bcopy((char *) hostent->h_addr, (char *) &s_address.sin_addr, hostent->h_length);
+    bcopy(hostent->h_addr, (char *) &s_address.sin_addr, hostent->h_length);
 
     /* アドレスのソケットへの割り当て */
-    if (bind(socked_id, (struct sockaddr *) &s_address, sizeof(s_address)) < 0) {
+    if (bind(sock, (struct sockaddr *) &s_address, sizeof(s_address)) < 0) {
         perror("bind");
-        exit(1);
+        close(sock);
+        exit(EXIT_FAILURE);
     }
 
     /* 接続要求待ち行列の長さを5とする */
-    if (listen(socked_id, 5) < 0) {
+    if (listen(sock, 5) < 0) {
         perror("listen");
-        exit(1);
+        close(sock);
+        exit(EXIT_FAILURE);
     }
-    return socked_id;
+    return sock;
 }
 
-void send_file(int socked_id) /* クライアントが要求するファイルを読み込みソケットに書き出す */
-{
-    while (true) {
-        char filename[MAX_FILE_NAME + 1];
+void handler_client(const int sock) {
+    bool is_continue = true;
+    while (is_continue) {
+        char buffer[BUFFER_SIZE] = {0};
         /* クライアントから送られるファイル名をソケットから読み込む */
-        recv(socked_id, filename, MAX_FILE_NAME + 1, 0);
-        /* 終了命令を受け取った時の処理 */
-        if (strcmp(filename, CLOSE_HEADER) == 0) {
+        ssize_t bytes_received = recv(sock, buffer, BUFFER_SIZE, 0);
+        if (bytes_received <= 0) break;
+        // 終了命令を受け取った時の処理
+        if (strncmp(buffer, SHUTDOWN_HEADER, SHUTDOWN_HEADER_LEN) == 0) {
             printf("session close request received\n");
-            break;
-        }
-        if (strncmp(filename, PUT_HEADER, PUT_HEADER_LEN) == 0) {
-            memmove(filename, &filename[PUT_HEADER_LEN], strlen(filename));
-            bool ack = true;
-            send(socked_id, &ack, 1, 0);
-        }
-        /* ファイルを読み出し専用にオープンする */
-        FILE *fd;
-        bool ack;
-        if ((fd = fopen(filename, "r")) != NULL) { /* ファイルオープンに成功した場合 */
-            /* オープン成功メッセージを送る */
-            ack = true;
-            send(socked_id, &ack, 1, 0);
-            /* ファイルから1行読み込みソケットに書き出すことをEOFを読むまで繰り返す */
-            printf("begin sending file %s\n", filename);
-            char buf[MAX_BUF_LEN];
-            while (fgets(buf, MAX_BUF_LEN, fd)) {
-                send(socked_id, buf, strlen(buf), 0);
+            is_continue = false;
+        } else if (strncmp(buffer, PUT_HEADER, PUT_HEADER_LEN) == 0) {
+            char filename[BUFFER_SIZE] = {0};
+            sscanf(buffer + PUT_HEADER_LEN, "%1023s", filename);
+            FILE *fp = fopen(filename, "w");
+            if (fp == NULL) {
+                perror("File opening failed");
+                while (recv(sock, buffer, BUFFER_SIZE, MSG_DONTWAIT) > 0);
+            } else
+                while ((bytes_received = recv(sock, buffer, BUFFER_SIZE, 0)) > 0) {
+                    if (buffer[0] == '\x04') break;
+                    fwrite(buffer, sizeof(char), bytes_received, fp);
+                    if (bytes_received < BUFFER_SIZE) break;
+                }
+            printf("File %s receive complete\n", filename);
+            fclose(fp);
+        } else if (strncmp(buffer, GET_HEADER, GET_HEADER_LEN) == 0) {
+            char filename[BUFFER_SIZE];
+            sscanf(buffer + GET_HEADER_LEN, "%1023s", filename);
+            char *token = strtok(filename, ",");
+            FILE *fp = fopen(token, "r");
+            if (fp == NULL) {
+                perror("File opening failed");
+                const char *error_msg = "ERROR: File not found\n";
+                send(sock, error_msg, strlen(error_msg), 0);
+            } else {
+                while (fgets(buffer, BUFFER_SIZE, fp) != NULL) {
+                    send(sock, buffer, strlen(buffer), 0);
+                }
+                printf("File %s send complete\n", filename);
             }
-            buf[0] = EOF;
-            buf[1] = '\0';
-            send(socked_id, buf, strlen(buf), 0); /* EOFを送りファイル送信が終わったことを伝える */
-            printf("sent file %s\n", filename);
-            fclose(fd);
-            printf("closed file %s\n", filename);
-        } else {                                    /* ファイルオープンに失敗した場合 */
-            /* オープン失敗メッセージを送る */
-            ack = false;
-            send(socked_id, &ack, 1, 0);
+            fclose(fp);
+            while ((token = strtok(NULL, ",")) != NULL) {
+                fp = fopen(token, "r");
+                if (fp == NULL) {
+                    perror("File opening failed");
+                    const char *error_msg = "ERROR: File not found\n";
+                    send(sock, error_msg, strlen(error_msg), 0);
+                } else {
+                    while (fgets(buffer, BUFFER_SIZE, fp) != NULL) {
+                        send(sock, buffer, strlen(buffer), 0);
+                    }
+                    fclose(fp);
+                    printf("File %s send complete\n", token);
+                }
+            }
         }
     }
 }

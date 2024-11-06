@@ -2,30 +2,36 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h> /* ソケットのための基本的なヘッダファイル      */
+
 #include <netinet/in.h> /* インタネットドメインのためのヘッダファイル  */
 #include <netdb.h>      /* gethostbyname()を用いるためのヘッダファイル */
 #include <string.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <stdint.h>
 
-#define  MAX_HOST_NAME    64
-#define     S_TCP_PORT    5000
-#define  MAX_FILE_NAME    255
-#define     MAX_BUF_LEN    512
-#define CLOSE_HEADER "CLOSE:"
+#define MAX_HOSTNAME_LEN 64
+#define DEFAULT_PORT 5000  /* 本サーバが用いるポート番号 */
+#define MAX_FILE_NAME 255
+#define BUFFER_SIZE 1024
+#define SHUTDOWN_HEADER "SHUTDOWN:"
+#define SHUTDOWN_HEADER_LEN 9
 #define PUT_HEADER "PUT:"
+#define PUT_HEADER_LEN 4
 #define GET_HEADER "GET:"
+#define GET_HEADER_LEN 4
+#define EOT "\x04"
 
-const size_t PUT_HEADER_LEN = strlen(PUT_HEADER);
-const size_t GET_HEADER_LEN = strlen(GET_HEADER);
+int setup_vc_client(struct hostent *hostent, uint16_t port);
 
-int setup_vc_client(struct hostent *, u_short);
+void handler_server(int sock);
 
-void receive_file(int);
+void receive_files(int sock);
+
+void send_file(int sock, const char *filename);
 
 int main() {
-    int socked_id;
-    char s_hostname[MAX_HOST_NAME];
+    char s_hostname[MAX_HOSTNAME_LEN];
     struct hostent *s_hostent;
 
     /* サーバのホスト名の入力 */
@@ -38,19 +44,19 @@ int main() {
     }
 
     /* バーチャルサーキットクライアントの初期設定 */
-    socked_id = setup_vc_client(s_hostent, S_TCP_PORT);
+    const int sock = setup_vc_client(s_hostent, DEFAULT_PORT);
 
     /* サーバにファイルを要求し受信したファイルの内容を標準出力に出力 */
-    receive_file(socked_id);
+    handler_server(sock);
     printf("client will close.\n");
-    close(socked_id);
+    close(sock);
     return 0;
 }
 
-int setup_vc_client(struct hostent *hostent, u_short port) {
-    int socked_id;
+int setup_vc_client(struct hostent *hostent, uint16_t port) {
+    int sock;
     /* インターネットドメインのSOCK_STREAM(TCP)型ソケットの構築 */
-    if ((socked_id = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
         perror("socket");
         exit(1);
     }
@@ -60,72 +66,64 @@ int setup_vc_client(struct hostent *hostent, u_short port) {
     bzero((char *) &s_address, sizeof(s_address));
     s_address.sin_family = AF_INET;
     s_address.sin_port = htons(port);
-    bcopy((char *) hostent->h_addr, (char *) &s_address.sin_addr, hostent->h_length);
+    bcopy(hostent->h_addr, (char *) &s_address.sin_addr, hostent->h_length);
     /* サーバとの接続の確立 */
-    if (connect(socked_id, (struct sockaddr *) &s_address, sizeof(s_address)) < 0) {
+    if (connect(sock, (struct sockaddr *) &s_address, sizeof(s_address)) < 0) {
         perror("connect");
-        exit(1);
+        close(sock);
+        exit(EXIT_FAILURE);
     }
 
-    return socked_id;
+    return sock;
 }
 
-void receive_file(int socked_id) /* サーバから受け取ったファイルの内容を表示する */
+void handler_server(const int sock) /* サーバから受け取ったファイルの内容を表示する */
 {
-    char inputted_str[MAX_FILE_NAME + 1];
-    while (1) {
+    bool is_continue = true;
+    while (is_continue) {
+        char buffer[BUFFER_SIZE];
         /* ファイル名の入力 */
-        printf("remote file name?: ");
-        if (scanf("%s", inputted_str) == EOF) { /* 終了処理時 ファイル名を終了ヘッダにしてサーバーに終了命令を送る*/
-            send(socked_id, CLOSE_HEADER, strlen(CLOSE_HEADER) + 1, 0);
-            printf("close signal sent to the server.\n");
-            break;
+        printf("Enter command (GET:<filename> or PUT:<filename>)");
+        fflush(stdout);
+        fflush(stdin);
+        if (fgets(buffer, BUFFER_SIZE, stdin) == NULL || strncmp(buffer, SHUTDOWN_HEADER, SHUTDOWN_HEADER_LEN) == 0) {
+            send(sock, SHUTDOWN_HEADER, SHUTDOWN_HEADER_LEN, 0);
+            is_continue = false;
+        } else if (strncmp(buffer, GET_HEADER, GET_HEADER_LEN) == 0) {
+            buffer[strcspn(buffer, "\n")] = '\0'; // 改行を削除
+            send(sock, buffer, strlen(buffer), 0);
+            receive_files(sock);
+        } else if (strncmp(buffer, PUT_HEADER, PUT_HEADER_LEN) == 0) {
+            buffer[strcspn(buffer, "\n")] = '\0'; // 改行を削除
+            send(sock, buffer, strlen(buffer), 0);
+            send_file(sock, buffer + PUT_HEADER_LEN);
+        } else {
+            fputs("\nInvalid command.\n", stderr);
         }
-        size_t inputted_len = strlen(inputted_str);
-        if (strncmp(inputted_str, PUT_HEADER, PUT_HEADER_LEN) == 0) {
-            send(socked_id, PUT_HEADER, PUT_HEADER_LEN + 1, 0);
-            bool ack;
-            recv(socked_id, &ack, 1, 0);
-            if (ack) {
-
-            }
-        } else if (strncmp(inputted_str, GET_HEADER, GET_HEADER_LEN) == 0) {
-            memmove(inputted_str, &inputted_str[GET_HEADER_LEN], inputted_len);
-            char *filenames[MAX_FILE_NAME] = {NULL};
-            filenames[0] = strtok(inputted_str, ",");
-            int file_num = 1;
-            for (int i = 1; i < MAX_FILE_NAME; ++i) {
-                if ((filenames[i] = strtok(NULL, ",")) == NULL) break;
-                ++file_num;
-            }
-            for (int i = 0; i < file_num; ++i) {
-                /* ファイル名をソケットに書き込む */
-                send(socked_id, filenames[i], strlen(filenames[i]) + 1, 0);
-                /* ファイルオープンに成功したかどうかのメッセージをソケットから読み込む */
-                bool ack;
-                recv(socked_id, &ack, 1, 0);
-                if (ack) {
-                    char buf[MAX_BUF_LEN] = {0};
-                    printf("received file %s \n", filenames[i]);
-                    printf("<- start of file ->\n");
-                    /* ソケットから読み込み標準出力に書き出す */
-                    ssize_t length;
-                    while ((length = recv(socked_id, buf, MAX_BUF_LEN, 0))) {
-                        if (buf[length - 1] == EOF) {
-                            buf[length - 1] = '\0';
-                            fputs(buf, stdout);
-                            break;
-                        } else {
-                            buf[length] = '\0';
-                            fputs(buf, stdout);
-                        }
-
-                    }
-                    printf("<- end of file ->\n");
-                } else {
-                    fprintf(stderr, "File access error\n");
-                }
-            }
-        } else printf("Bad Header\n");
     }
+}
+
+void receive_files(const int sock) {
+    char buffer[BUFFER_SIZE] = {0};
+    ssize_t bytes_received;
+    while ((bytes_received = recv(sock, buffer, BUFFER_SIZE, 0)) > 0) {
+        fputs(buffer, stdout);
+        if (bytes_received < BUFFER_SIZE) break;
+    }
+}
+
+void send_file(const int sock, const char *filename) {
+    FILE *file = fopen(filename, "r");
+    char buffer[BUFFER_SIZE];
+    if (file == NULL) {
+        perror("File opening failed");
+        send(sock, EOT, 1, 0);
+        return;
+    }
+
+    while (fgets(buffer, BUFFER_SIZE, file) != NULL) {
+        send(sock, buffer, strlen(buffer), 0);
+    }
+    fclose(file);
+    printf("File %s sent to server.\n", filename);
 }
