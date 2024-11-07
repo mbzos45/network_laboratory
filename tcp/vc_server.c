@@ -158,7 +158,7 @@ void handler_client(const int sock) {
                     const char *error_msg = "ERROR: File not found\n";
                     send(sock, error_msg, strlen(error_msg), 0); // エラーメッセージを送信
                 } else {
-                    const char *start_msg = "<-START FILE->\n";
+                    const char *start_msg = "<-START FILE->\n"; // ファイルの先頭ヘッダー
                     send(sock, start_msg, strlen(start_msg), 0);
                     while (fgets(buffer, BUFFER_SIZE, fp) != NULL) {
                         // ファイル内容を全て送信する
@@ -176,7 +176,7 @@ void handler_client(const int sock) {
                         }
                     }
                     fclose(fp);
-                    const char *end_msg = "<-END FILE->\n";
+                    const char *end_msg = "<-END FILE->\n"; // ファイルの末尾ヘッダー
                     send(sock, end_msg, strlen(end_msg), 0);
                     printf("File %s send complete\n", filename);
                 }

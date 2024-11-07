@@ -6,7 +6,6 @@
 #include <netdb.h>
 #include <string.h>
 #include <unistd.h>
-#include <stdint.h>
 
 #define MAX_HOSTNAME_LEN 64
 #define DEFAULT_PORT 5000  // 本サーバが用いるポート番号
@@ -80,8 +79,7 @@ void handler_server(const int sock) // サーバから受け取ったファイ�
 {
     while (1) {
         char buffer[BUFFER_SIZE];
-        /* ファイル名の入力 */
-        printf("Enter command (GET:<filename> or PUT:<filename>)");
+        printf("Enter command (GET:<filename> or PUT:<filename>)"); // コマンドの入力
         fflush(stdout);
         fflush(stdin);
         if (fgets(buffer, BUFFER_SIZE, stdin) == NULL || strncmp(buffer, SHUTDOWN_HEADER, SHUTDOWN_HEADER_LEN) == 0) {
